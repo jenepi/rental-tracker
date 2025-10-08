@@ -5,21 +5,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Receipts Viewer</title>
   <style>
-    /* Simple grid for thumbnails */
-    #toolbar { display:flex; gap:12px; padding:12px; align-items:center; }
+    #toolbar { display:flex; gap:12px; padding:12px; align-items:center; flex-wrap:wrap; }
     #thumbs { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; padding:12px; }
     .thumb { cursor:pointer; border:1px solid #eee; padding:6px; border-radius:6px; display:flex; align-items:center; justify-content:center; background:#fafafa; height:120px; overflow:hidden; }
     .thumb img { max-width:100%; max-height:100%; object-fit:contain; display:block; }
-
-    /* Modal */
     .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999; }
     .modal { width:90%; max-width:1000px; max-height:90vh; background:white; border-radius:8px; overflow:hidden; position:relative; box-shadow:0 12px 40px rgba(0,0,0,0.4); }
     .modal-header { display:flex; justify-content:flex-end; padding:8px; background:#f6f6f6; }
     .close-btn { background:transparent; border:0; font-size:20px; cursor:pointer; padding:4px 10px; }
     .modal-body { padding:0; height:calc(90vh - 48px); display:flex; align-items:center; justify-content:center; }
     .modal-body img, .modal-body iframe { width:100%; height:100%; border:0; }
-
     .file-label { font-size:14px; color:#444; padding:12px; text-align:center; word-break:break-word; }
+    #err { color:#b00020; padding:0 12px; white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
   </style>
 </head>
 <body>
@@ -27,166 +24,25 @@
     <h2 style="margin:0">Receipts</h2>
     <label for="bucketSelect" style="margin-left:auto">Bucket:</label>
     <select id="bucketSelect">
-      <option value="receipts">receipts</option>
+      <option value="receipts" selected>receipts</option>
       <option value="build_reciepts">build_reciepts</option>
     </select>
     <button id="refreshBtn">Refresh</button>
   </div>
 
+  <div id="err"></div>
   <div id="thumbs">Loading receipts...</div>
 
-  <script type="module">
+  <!-- Use UMD build to avoid module import issues -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script>
     // ====== CONFIG: fill these in ======
     const SUPABASE_URL = "https://hbgtxqlmlqkvmnpfkczj.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiZ3R4cWxtbHFrdm1ucGZrY3pqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MzA0NjksImV4cCI6MjA2MzEwNjQ2OX0.3t7q9rwuLZx3u21-L3xyeudTrMJ8QhbcFve36j2656g";
     // ===================================
 
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const thumbsEl = document.getElementById('thumbs');
-    const bucketSelect = document.getElementById('bucketSelect');
-    const refreshBtn = document.getElementById('refreshBtn');
-
-    // current bucket (fixes the "BUCKET is not defined" error)
-    let currentBucket = bucketSelect.value;
-
-    // Helper: determine if file is image or pdf
-    function getFileType(path) {
-      const ext = path.split('.').pop().toLowerCase();
-      if (['jpg','jpeg','png','gif','webp','bmp','tiff'].includes(ext)) return 'image';
-      if (ext === 'pdf') return 'pdf';
-      return 'other';
-    }
-
-    // Use public URL if bucket is public; otherwise create a signed URL.
-    async function getFileUrl(path) {
-      try {
-        const publicRes = supabase.storage.from(currentBucket).getPublicUrl(path);
-        if (publicRes?.data?.publicUrl && !publicRes.data.publicUrl.includes('null')) {
-          return publicRes.data.publicUrl;
-        }
-      } catch (_) {}
-      const { data, error } = await supabase.storage.from(currentBucket).createSignedUrl(path, 300);
-      if (error) throw error;
-      return data.signedUrl;
-    }
-
-    function openModal(url, type, filename) {
-      const backdrop = document.createElement('div');
-      backdrop.className = 'modal-backdrop';
-      backdrop.tabIndex = 0;
-
-      const modal = document.createElement('div');
-      modal.className = 'modal';
-      modal.innerHTML = `
-        <div class="modal-header">
-          <button class="close-btn" title="Close">&times;</button>
-        </div>
-        <div class="modal-body"></div>
-      `;
-
-      const body = modal.querySelector('.modal-body');
-      const closeBtn = modal.querySelector('.close-btn');
-
-      if (type === 'image') {
-        const img = document.createElement('img');
-        img.src = url;
-        img.alt = filename || 'Receipt image';
-        body.appendChild(img);
-      } else if (type === 'pdf') {
-        const iframe = document.createElement('iframe');
-        iframe.src = url;
-        iframe.setAttribute('aria-label', filename || 'Receipt PDF');
-        body.appendChild(iframe);
-      } else {
-        const link = document.createElement('a');
-        link.href = url;
-        link.textContent = 'Open receipt in a new tab';
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.className = 'file-label';
-        body.appendChild(link);
-      }
-
-      backdrop.appendChild(modal);
-      document.body.appendChild(backdrop);
-
-      const closeModal = () => backdrop.remove();
-      closeBtn.addEventListener('click', closeModal);
-      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
-      document.addEventListener('keydown', function escHandler(e) {
-        if (e.key === 'Escape') { closeModal(); document.removeEventListener('keydown', escHandler); }
-      }, { once: true });
-    }
-
-    async function loadReceipts() {
-      thumbsEl.textContent = 'Loading receipts...';
-      const { data, error } = await supabase.storage.from(currentBucket).list('', { limit: 200, offset: 0 });
-      if (error) {
-        console.error('List error:', error);
-        thumbsEl.textContent = `Error loading receipts from "${currentBucket}".`;
-        return;
-      }
-      if (!data || data.length === 0) {
-        thumbsEl.textContent = `No receipts found in "${currentBucket}".`;
-        return;
-      }
-
-      thumbsEl.innerHTML = '';
-      for (const file of data) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'thumb';
-        wrapper.title = file.name;
-
-        const fileType = getFileType(file.name);
-
-        if (fileType === 'image') {
-          try {
-            const url = await getFileUrl(file.name);
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = file.name;
-            wrapper.appendChild(img);
-          } catch {
-            const lbl = document.createElement('div');
-            lbl.className = 'file-label';
-            lbl.textContent = file.name;
-            wrapper.appendChild(lbl);
-          }
-        } else {
-          const lbl = document.createElement('div');
-          lbl.className = 'file-label';
-          lbl.textContent = file.name;
-          wrapper.appendChild(lbl);
-        }
-
-        wrapper.addEventListener('click', async () => {
-          try {
-            const url = await getFileUrl(file.name);
-            openModal(url, fileType, file.name);
-          } catch (err) {
-            alert('Could not load file. Check console for details.');
-            console.error(err);
-          }
-        });
-
-        thumbsEl.appendChild(wrapper);
-      }
-    }
-
-    // Events
-    bucketSelect.addEventListener('change', () => {
-      currentBucket = bucketSelect.value;
-      loadReceipts();
-    });
-    refreshBtn.addEventListener('click', loadReceipts);
-
-    // First load
-    loadReceipts();
-
-    // Expose for console testing
-    window.reloadReceipts = loadReceipts;
-  </script>
-</body>
-</html>
+    const errEl = document.getElementById('err');
+    const bucketSelect = do
