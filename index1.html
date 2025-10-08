@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Receipts Viewer</title>
+  <style>
+    /* Simple grid for thumbnails */
+    #thumbs { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: 12px; padding:12px; }
+    .thumb { cursor:pointer; border:1px solid #eee; padding:6px; border-radius:6px; display:flex; align-items:center; justify-content:center; background:#fafafa; height:120px; overflow:hidden; }
+    .thumb img { max-width:100%; max-height:100%; object-fit:contain; display:block; }
+
+    /* Modal */
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999; }
+    .modal { width:90%; max-width:1000px; max-height:90vh; background:white; border-radius:8px; overflow:hidden; position:relative; box-shadow:0 12px 40px rgba(0,0,0,0.4); }
+    .modal-header { display:flex; justify-content:flex-end; padding:8px; background:#f6f6f6; }
+    .close-btn { background:transparent; border:0; font-size:20px; cursor:pointer; padding:4px 10px; }
+    .modal-body { padding:0; height:calc(90vh - 48px); display:flex; align-items:center; justify-content:center; }
+    .modal-body img, .modal-body iframe { width:100%; height:100%; border:0; }
+
+    /* Small fallback file icon text */
+    .file-label { font-size:14px; color:#444; padding:12px; text-align:center; }
+  </style>
+</head>
+<body>
+  <h2 style="padding:12px 12px 0 12px">Receipts</h2>
+  <div id="thumbs">Loading receipts...</div>
+
+  <script type="module">
+   // ====== CONFIG: fill these in ======
+    const SUPABASE_URL = "https://hbgtxqlmlqkvmnpfkczj.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiZ3R4cWxtbHFrdm1ucGZrY3pqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MzA0NjksImV4cCI6MjA2MzEwNjQ2OX0.3t7q9rwuLZx3u21-L3xyeudTrMJ8QhbcFve36j2656g";
+    // ===================================
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const thumbsEl = document.getElementById('thumbs');
+
+    // Helper: determine if file is image or pdf
+    function getFileType(path) {
+      const ext = path.split('.').pop().toLowerCase();
+      if (['jpg','jpeg','png','gif','webp','bmp','tiff'].includes(ext)) return 'image';
+      if (['pdf'].includes(ext)) return 'pdf';
+      return 'other';
+    }
+
+    // Use public URL if bucket is public; otherwise create a signed URL.
+    async function getFileUrl(path) {
+      // Try getPublicUrl first (works for public buckets)
+      try {
+        const publicRes = supabase.storage.from(BUCKET).getPublicUrl(path);
+        if (publicRes?.data?.publicUrl) {
+          // quick sanity check: if publicUrl includes 'null' or empty, fallback
+          if (!publicRes.data.publicUrl.includes('null')) return publicRes.data.publicUrl;
+        }
+      } catch(err) {
+        // ignore and fall through to signed url
+      }
+      // Signed url (valid for e.g. 60 seconds)
+      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
+      if (error) {
+        console.error('createSignedUrl error', error);
+        throw error;
+      }
+      return data.signedUrl;
+    }
+
+    // Render a modal (append to body)
+    function openModal(url, type, filename) {
+      // create backdrop
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      backdrop.tabIndex = 0;
+
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+
+      modal.innerHTML = `
+        <div class="modal-header">
+          <button class="close-btn" title="Close">&times;</button>
+        </div>
+        <div class="modal-body"></div>
+      `;
+
+      const body = modal.querySelector('.modal-body');
+      const closeBtn = modal.querySelector('.close-btn');
+
+      if (type === 'image') {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = filename || 'Receipt image';
+        body.appendChild(img);
+      } else if (type === 'pdf') {
+        const iframe = document.createElement('iframe');
+        iframe.src = url;
+        iframe.setAttribute('aria-label', filename || 'Receipt PDF');
+        body.appendChild(iframe);
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.textContent = 'Open receipt in a new tab';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'file-label';
+        body.appendChild(link);
+      }
+
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+
+      // focus, close handlers
+      closeBtn.addEventListener('click', () => closeModal(backdrop));
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(backdrop); });
+      document.addEventListener('keydown', function escHandler(e) {
+        if (e.key === 'Escape') { closeModal(backdrop); document.removeEventListener('keydown', escHandler); }
+      }, { once: true });
+    }
+
+    function closeModal(backdrop) {
+      backdrop.remove();
+    }
+
+    // Load list of files (you can adapt this to fetch file list from your DB instead of storage)
+    async function loadReceipts() {
+      thumbsEl.innerHTML = 'Loading receipts...';
+      // List files in the bucket root. Modify prefix if receipts are inside folders.
+      const { data, error } = await supabase.storage.from(BUCKET).list('', { limit: 100, offset: 0 });
+      if (error) {
+        thumbsEl.innerHTML = 'Error loading receipts';
+        console.error(error);
+        return;
+      }
+      if (!data || data.length === 0) {
+        thumbsEl.innerHTML = 'No receipts found.';
+        return;
+      }
+
+      thumbsEl.innerHTML = '';
+      data.forEach(file => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'thumb';
+        wrapper.title = file.name;
+
+        const fileType = getFileType(file.name);
+
+        if (fileType === 'image') {
+          // create a small preview: fetch a signed/public url for the thumbnail
+          getFileUrl(file.name)
+            .then(url => {
+              const img = document.createElement('img');
+              img.src = url;
+              img.alt = file.name;
+              wrapper.appendChild(img);
+            })
+            .catch(() => {
+              wrapper.textContent = file.name;
+            });
+        } else {
+          // show filename for non-images
+          const lbl = document.createElement('div');
+          lbl.className = 'file-label';
+          lbl.textContent = file.name;
+          wrapper.appendChild(lbl);
+        }
+
+        // click handler: open modal with full viewer
+        wrapper.addEventListener('click', async () => {
+          try {
+            const url = await getFileUrl(file.name);
+            openModal(url, fileType, file.name);
+          } catch (err) {
+            alert('Could not load file. Check console for details.');
+            console.error(err);
+          }
+        });
+
+        thumbsEl.appendChild(wrapper);
+      });
+    }
+
+    // run
+    loadReceipts();
+
+    // Optional: expose loadReceipts to console for testing
+    window.reloadReceipts = loadReceipts;
+  </script>
+</body>
+</html>
