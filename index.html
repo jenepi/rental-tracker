@@ -39,6 +39,22 @@
     section[data-view].show{display:block}
   </style>
 </head>
+  <script>
+  (function () {
+    const sections = Array.from(document.querySelectorAll('section[data-view]'));
+    const navLinks = Array.from(document.querySelectorAll('#nav a[href^="#"]'));
+    function show(view){
+      sections.forEach(s=>s.classList.toggle('show', s.dataset.view===view));
+      navLinks.forEach(a=>a.classList.toggle('active', a.dataset.view===view));
+    }
+    function fromHash(){
+      const v = (location.hash||'#income').slice(1);
+      show(v);
+    }
+    window.addEventListener('hashchange', fromHash);
+    fromHash();
+  })();
+</script>
 <body>
   <header class="topbar">
     <div class="brand"><span>🏠</span><strong>Rental & 🔒 Build Tracker</strong></div>
