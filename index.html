@@ -134,7 +134,7 @@
      const SUPABASE_URL = "https://hbgtxqlmlqkvmnpfkczj.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiZ3R4cWxtbHFrdm1ucGZrY3pqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MzA0NjksImV4cCI6MjA2MzEwNjQ2OX0.3t7q9rwuLZx3u21-L3xyeudTrMJ8QhbcFve36j2656g";
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // ---------- Simple tab routing (no extra files) ----------
     const sections = [...document.querySelectorAll('section[data-view]')];
