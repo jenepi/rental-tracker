@@ -2,943 +2,296 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Rental & Build Tracker</title>
-  <!-- Tailwind CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Supabase JS v2 -->
-  <script type="module">
-    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-
-    // ====== CONFIG: fill these in ======
-    const SUPABASE_URL = "https://hbgtxqlmlqkvmnpfkczj.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiZ3R4cWxtbHFrdm1ucGZrY3pqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MzA0NjksImV4cCI6MjA2MzEwNjQ2OX0.3t7q9rwuLZx3u21-L3xyeudTrMJ8QhbcFve36j2656g";
-    // ===================================
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-    // Utilities
-    const $ = (sel) => document.querySelector(sel);
-    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-
-    function fmtMoney(n) {
-      if (n == null || isNaN(n)) return "$0.00";
-      return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(Number(n));
+  <style>
+    :root{
+      --bg:#f7f9fc; --card:#fff; --ink:#0f172a; --muted:#6b7280;
+      --ink-soft:#334155; --line:#e5e7eb; --brand:#111827;
+      --radius:14px;
     }
-    function toast(msg, type="info") {
-      const el = document.createElement("div");
-      el.className = `fixed bottom-4 right-4 z-50 rounded-xl px-4 py-3 shadow-lg text-white ${type==="error"?"bg-red-600":type==="success"?"bg-emerald-600":"bg-slate-700"}`;
-      el.textContent = msg;
-      document.body.appendChild(el);
-      setTimeout(()=> el.remove(), 2500);
-    }
-    function setLoading(btn, isLoading) {
-      if (!btn) return;
-      btn.disabled = isLoading;
-      const t = btn.dataset.label ?? btn.textContent;
-      btn.dataset.label = t;
-      btn.textContent = isLoading ? "Working..." : t;
-    }
-
-    // ==== Data helpers ====
-    async function listTable(table, opts = {}) {
-      // opts: select, order, eq, gte, lte, ilike, limit
-      let q = supabase.from(table).select(opts.select ?? "*");
-      if (opts.eq) for (const [k,v] of Object.entries(opts.eq)) q = q.eq(k,v);
-      if (opts.gte) for (const [k,v] of Object.entries(opts.gte)) q = q.gte(k,v);
-      if (opts.lte) for (const [k,v] of Object.entries(opts.lte)) q = q.lte(k,v);
-      if (opts.ilike) for (const [k,v] of Object.entries(opts.ilike)) q = q.ilike(k,v);
-      if (opts.order) q = q.order(opts.order.column, { ascending: !!opts.order.ascending });
-      if (opts.limit) q = q.limit(opts.limit);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data;
-    }
-    async function insertRow(table, row) {
-      const { data, error } = await supabase.from(table).insert(row).select().single();
-      if (error) throw error;
-      return data;
-    }
-    async function updateRow(table, id, row) {
-      const { data, error } = await supabase.from(table).update(row).eq("id", id).select().single();
-      if (error) throw error;
-      return data;
-    }
-    async function deleteRow(table, id) {
-      const { error } = await supabase.from(table).delete().eq("id", id);
-      if (error) throw error;
-      return true;
-    }
-
-    // ===== Dropdown population =====
-    async function populateSelect(sel, table, valueField="id", labelField="name") {
-      const el = $(sel);
-      if (!el) return;
-      el.innerHTML = "";
-      let rows = [];
-      try {
-        rows = await listTable(table, { order: { column: labelField, ascending: true }});
-      } catch (e) {
-        console.error(e);
-        toast(`Failed to load ${table}`, "error");
-      }
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = `— Choose —`;
-      el.appendChild(opt0);
-      for (const r of rows) {
-        const o = document.createElement("option");
-        o.value = r[valueField];
-        o.textContent = r[labelField] ?? `#${r[valueField]}`;
-        el.appendChild(o);
-      }
-    }
-
-    // ========= Tabs =========
-    function showTab(id) {
-      $$(".tab").forEach(div => div.classList.add("hidden"));
-      $(`#${id}`)?.classList.remove("hidden");
-      $$(".navbtn").forEach(b=> b.classList.remove("bg-slate-800","text-white"));
-      $(`[data-tab='${id}']`)?.classList.add("bg-slate-800","text-white");
-    }
-
-    // ========= INIT =========
-    document.addEventListener("DOMContentLoaded", async () => {
-      // Nav
-      $$(".navbtn").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
-      showTab("tab-income");
-
-      // Populate shared dropdowns
-      await Promise.all([
-        populateSelect("#income_property_id", "properties"),
-        populateSelect("#income_account_id", "accounts"),
-        populateSelect("#income_tenant_id", "tenants"),
-        populateSelect("#expense_property_id", "properties"),
-        populateSelect("#expense_vendor_id", "vendors"),
-        populateSelect("#expense_category_id", "expense_categories"),
-        populateSelect("#expense_account_id", "accounts"),
-        populateSelect("#build_vendor_id", "vendors"),
-        populateSelect("#build_category_id", "expense_categories"),
-        populateSelect("#filter_property", "properties"),
-      ]);
-
-      // Load recent tables
-      await refreshTables();
-    });
-
-    async function refreshTables() {
-      await Promise.all([
-        loadIncomeTable(),
-        loadExpenseTable(),
-        loadPropertiesTable(),
-        loadVendorsTable(),
-        loadCategoriesTable(),
-        loadBuildExpensesTable()
-      ]);
-    }
-
-    // ====== Income ======
-    async function submitIncome(e) {
-      e.preventDefault();
-      const btn = $("#btnAddIncome");
-      setLoading(btn, true);
-      try {
-        const row = {
-          property_id: parseInt($("#income_property_id").value) || null,
-          amount: parseFloat($("#income_amount").value),
-          date: $("#income_date").value || null,
-          account_id: $("#income_account_id").value ? parseInt($("#income_account_id").value) : null,
-          tenant_id: $("#income_tenant_id").value ? parseInt($("#income_tenant_id").value) : null,
-          source: $("#income_source").value || null,
-          note: $("#income_note").value || null,
-          payment_type: $("#income_payment_type").value || null,
-        };
-        await insertRow("income", row);
-        toast("Income added", "success");
-        (e.target).reset();
-        await loadIncomeTable();
-      } catch (err) {
-        console.error(err);
-        toast(err.message, "error");
-      } finally {
-        setLoading(btn, false);
-      }
-    }
-    async function loadIncomeTable() {
-      try {
-        const rows = await listTable("income", { order: { column: "date", ascending: false }});
-        const tbody = $("#income_tbody");
-        tbody.innerHTML = "";
-        for (const r of rows) {
-          const tr = document.createElement("tr");
-          tr.className = "border-b";
-          tr.innerHTML = `
-            <td class="p-2">${r.id}</td>
-            <td class="p-2">${r.date ?? ""}</td>
-            <td class="p-2">${fmtMoney(r.amount)}</td>
-            <td class="p-2">${r.property_id ?? ""}</td>
-            <td class="p-2">${r.source ?? ""}</td>
-            <td class="p-2">${r.payment_type ?? ""}</td>
-            <td class="p-2">${r.note ?? ""}</td>
-            <td class="p-2 text-right">
-              <button class="text-blue-700 mr-2" onclick="editIncome(${r.id})">Edit</button>
-              <button class="text-red-700" onclick="removeIncome(${r.id})">Delete</button>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        }
-      } catch (e) {
-        console.error(e);
-        toast("Failed to load income", "error");
-      }
-    }
-    async function editIncome(id) {
-      const amount = prompt("New amount?");
-      if (amount==null) return;
-      try {
-        await updateRow("income", id, { amount: Number(amount) });
-        toast("Income updated","success");
-        await loadIncomeTable();
-      } catch (e) { toast(e.message,"error"); }
-    }
-    async function removeIncome(id) {
-      if (!confirm("Delete this income row?")) return;
-      try {
-        await deleteRow("income", id);
-        toast("Income deleted","success");
-        await loadIncomeTable();
-      } catch (e) { toast(e.message,"error"); }
-    }
-
-    // ====== Expenses (+ receipts) ======
-    async function submitExpense(e) {
-      e.preventDefault();
-      const btn = $("#btnAddExpense");
-      setLoading(btn, true);
-      try {
-        const row = {
-          property_id: parseInt($("#expense_property_id").value) || null,
-          vendor_id: parseInt($("#expense_vendor_id").value) || null,
-          amount: parseFloat($("#expense_amount").value),
-          date: $("#expense_date").value || null,
-          account_id: $("#expense_account_id").value ? parseInt($("#expense_account_id").value) : null,
-          category_id: $("#expense_category_id").value ? parseInt($("#expense_category_id").value) : null,
-          description: $("#expense_description").value || null,
-        };
-        const exp = await insertRow("expenses", row);
-
-        // handle receipt upload optional
-        const fileInput = $("#expense_receipt");
-        if (fileInput.files.length > 0) {
-          const file = fileInput.files[0];
-          const path = `receipts/${exp.id}-${Date.now()}-${file.name}`;
-          const { error: upErr } = await supabase.storage.from("receipts").upload(path, file);
-          if (upErr) throw upErr;
-
-          const { data: publicUrl } = supabase.storage.from("receipts").getPublicUrl(path);
-          await insertRow("receipts", { expense_id: exp.id, file_url: publicUrl.publicUrl, description: $("#receipt_desc").value || null });
-        }
-
-        toast("Expense added", "success");
-        (e.target).reset();
-        await loadExpenseTable();
-      } catch (err) {
-        console.error(err);
-        toast(err.message, "error");
-      } finally {
-        setLoading(btn, false);
-      }
-    }
-    async function loadExpenseTable() {
-      try {
-        const rows = await listTable("expenses", { order: { column: "date", ascending: false }});
-        const tbody = $("#expense_tbody");
-        tbody.innerHTML = "";
-        for (const r of rows) {
-          const tr = document.createElement("tr");
-          tr.className = "border-b";
-          tr.innerHTML = `
-            <td class="p-2">${r.id}</td>
-            <td class="p-2">${r.date ?? ""}</td>
-            <td class="p-2">${fmtMoney(r.amount)}</td>
-            <td class="p-2">${r.property_id ?? ""}</td>
-            <td class="p-2">${r.vendor_id ?? ""}</td>
-            <td class="p-2">${r.category_id ?? ""}</td>
-            <td class="p-2">${r.description ?? ""}</td>
-            <td class="p-2 text-right">
-              <button class="text-blue-700 mr-2" onclick="editExpense(${r.id})">Edit</button>
-              <button class="text-red-700 mr-2" onclick="removeExpense(${r.id})">Delete</button>
-              <button class="text-emerald-700" onclick="addReceiptToExpense(${r.id})">Add Receipt</button>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        }
-      } catch (e) {
-        console.error(e);
-        toast("Failed to load expenses", "error");
-      }
-    }
-    async function editExpense(id) {
-      const amount = prompt("New amount?");
-      if (amount==null) return;
-      try {
-        await updateRow("expenses", id, { amount: Number(amount) });
-        toast("Expense updated","success");
-        await loadExpenseTable();
-      } catch (e) { toast(e.message,"error"); }
-    }
-    async function removeExpense(id) {
-      if (!confirm("Delete this expense?")) return;
-      try {
-        await deleteRow("expenses", id);
-        toast("Expense deleted","success");
-        await loadExpenseTable();
-      } catch (e) { toast(e.message,"error"); }
-    }
-    async function addReceiptToExpense(expenseId) {
-      const url = prompt("Paste file URL (or upload via form when creating).");
-      if (!url) return;
-      try {
-        await insertRow("receipts", { expense_id: expenseId, file_url: url });
-        toast("Receipt linked", "success");
-      } catch (e) {
-        toast(e.message, "error");
-      }
-    }
-
-    // ===== Build expenses =====
-    async function submitBuildExpense(e) {
-      e.preventDefault();
-      const btn = $("#btnAddBuildExpense");
-      setLoading(btn, true);
-      try {
-        const row = {
-          amount: parseFloat($("#build_amount").value),
-          expense_date: $("#build_date").value || null,
-          capitalizable: $("#build_capitalizable").checked,
-          price_peritem: $("#build_price_peritem").value ? parseFloat($("#build_price_peritem").value) : null,
-          number_ofitems: $("#build_number_ofitems").value ? parseInt($("#build_number_ofitems").value) : null,
-          category_id: $("#build_category_id").value ? parseInt($("#build_category_id").value) : null,
-          asset_type_id: $("#build_asset_type_id").value ? parseInt($("#build_asset_type_id").value) : null,
-          vendor_id: $("#build_vendor_id").value ? parseInt($("#build_vendor_id").value) : null,
-          description: $("#build_description").value || null,
-          notes: $("#build_notes").value || null,
-          reusable: $("#build_reusable").value || null,
-        };
-        const exp = await insertRow("build_expenses", row);
-
-        // optional receipt
-        const fileInput = $("#build_receipt");
-        if (fileInput.files.length > 0) {
-          const file = fileInput.files[0];
-          const path = `build_receipts/${exp.id}-${Date.now()}-${file.name}`;
-          const { error: upErr } = await supabase.storage.from("receipts").upload(path, file);
-          if (upErr) throw upErr;
-          const { data: publicUrl } = supabase.storage.from("receipts").getPublicUrl(path);
-          // store in receipts table (or build_expense_receipts + receipts if using junction)
-          const rec = await insertRow("receipts", { file_url: publicUrl.publicUrl, description: $("#build_receipt_desc").value || null });
-          await insertRow("build_expense_receipts", { expense_id: exp.id, receipt_id: rec.id });
-        }
-
-        toast("Build expense added", "success");
-        (e.target).reset();
-        await loadBuildExpensesTable();
-      } catch (err) {
-        console.error(err);
-        toast(err.message, "error");
-      } finally {
-        setLoading(btn, false);
-      }
-    }
-    async function loadBuildExpensesTable() {
-      try {
-        const rows = await listTable("build_expenses", { order: { column: "expense_date", ascending: false }});
-        const tbody = $("#build_tbody");
-        tbody.innerHTML = "";
-        for (const r of rows) {
-          const tr = document.createElement("tr");
-          tr.className = "border-b";
-          tr.innerHTML = `
-            <td class="p-2">${r.id}</td>
-            <td class="p-2">${r.expense_date ?? ""}</td>
-            <td class="p-2">${fmtMoney(r.amount)}</td>
-            <td class="p-2">${r.vendor_id ?? ""}</td>
-            <td class="p-2">${r.category_id ?? ""}</td>
-            <td class="p-2">${r.capitalizable ? "Yes" : "No"}</td>
-            <td class="p-2">${r.description ?? ""}</td>
-            <td class="p-2 text-right">
-              <button class="text-red-700" onclick="removeBuildExpense(${r.id})">Delete</button>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        }
-      } catch (e) {
-        console.error(e);
-        toast("Failed to load build expenses", "error");
-      }
-    }
-    async function removeBuildExpense(id) {
-      if (!confirm("Delete this build expense?")) return;
-      try {
-        await deleteRow("build_expenses", id);
-        toast("Deleted","success");
-        await loadBuildExpensesTable();
-      } catch (e) { toast(e.message,"error"); }
-    }
-
-    // ===== Admin: properties, vendors, categories =====
-    async function submitProperty(e) {
-      e.preventDefault();
-      const btn = $("#btnAddProperty");
-      setLoading(btn, true);
-      try {
-        const row = {
-          name: $("#prop_name").value,
-          address: $("#prop_address").value || null,
-          city: $("#prop_city").value || null,
-          state: $("#prop_state").value || null,
-          zip_code: $("#prop_zip").value || null,
-          purchase_price: $("#prop_purchase_price").value ? parseFloat($("#prop_purchase_price").value) : null,
-          purchase_date: $("#prop_purchase_date").value || null,
-          taxdefered: $("#prop_taxdefered").checked,
-          notes: $("#prop_notes").value || null,
-        };
-        await insertRow("properties", row);
-        toast("Property added","success");
-        (e.target).reset();
-        await populateSelect("#income_property_id", "properties");
-        await populateSelect("#expense_property_id", "properties");
-        await populateSelect("#filter_property", "properties");
-        await loadPropertiesTable();
-      } catch (e2) { toast(e2.message,"error"); }
-      finally { setLoading(btn,false); }
-    }
-    async function loadPropertiesTable() {
-      try {
-        const rows = await listTable("properties", { order: { column: "name", ascending: true }});
-        const tbody = $("#props_tbody");
-        tbody.innerHTML = "";
-        for (const r of rows) {
-          const tr = document.createElement("tr");
-          tr.className = "border-b";
-          tr.innerHTML = `
-            <td class="p-2">${r.id}</td>
-            <td class="p-2">${r.name ?? ""}</td>
-            <td class="p-2">${r.address ?? ""}</td>
-            <td class="p-2">${r.city ?? ""}, ${r.state ?? ""} ${r.zip_code ?? ""}</td>
-            <td class="p-2">${fmtMoney(r.purchase_price)}</td>
-            <td class="p-2">${r.purchase_date ?? ""}</td>
-            <td class="p-2">${r.taxdefered ? "Yes":"No"}</td>
-            <td class="p-2">${r.notes ?? ""}</td>
-          `;
-          tbody.appendChild(tr);
-        }
-      } catch (e) {
-        toast("Failed to load properties","error");
-      }
-    }
-
-    async function submitVendor(e) {
-      e.preventDefault();
-      const btn = $("#btnAddVendor");
-      setLoading(btn, true);
-      try {
-        const row = {
-          name: $("#vendor_name").value,
-          service_type: $("#vendor_service_type").value || null,
-          phone: $("#vendor_phone").value || null,
-          email: $("#vendor_email").value || null,
-          notes: $("#vendor_notes").value || null,
-        };
-        await insertRow("vendors", row);
-        toast("Vendor added","success");
-        (e.target).reset();
-        await populateSelect("#expense_vendor_id","vendors");
-        await populateSelect("#build_vendor_id","vendors");
-        await loadVendorsTable();
-      } catch (e2) { toast(e2.message,"error"); }
-      finally { setLoading(btn,false); }
-    }
-    async function loadVendorsTable() {
-      try {
-        const rows = await listTable("vendors", { order: { column: "name", ascending: true }});
-        const tbody = $("#vendors_tbody");
-        tbody.innerHTML = rows.map(r => `
-          <tr class="border-b">
-            <td class="p-2">${r.id}</td>
-            <td class="p-2">${r.name ?? ""}</td>
-            <td class="p-2">${r.service_type ?? ""}</td>
-            <td class="p-2">${r.email ?? ""}</td>
-            <td class="p-2">${r.phone ?? ""}</td>
-            <td class="p-2">${r.notes ?? ""}</td>
-          </tr>
-        `).join("");
-      } catch (e) {
-        toast("Failed to load vendors","error");
-      }
-    }
-
-    async function submitCategory(e) {
-      e.preventDefault();
-      const btn = $("#btnAddCategory");
-      setLoading(btn, true);
-      try {
-        const row = { name: $("#category_name").value };
-        await insertRow("expense_categories", row);
-        toast("Category added","success");
-        (e.target).reset();
-        await populateSelect("#expense_category_id","expense_categories");
-        await populateSelect("#build_category_id","expense_categories");
-        await loadCategoriesTable();
-      } catch (e2) { toast(e2.message,"error"); }
-      finally { setLoading(btn,false); }
-    }
-    async function loadCategoriesTable() {
-      try {
-        const rows = await listTable("expense_categories", { order: { column: "name", ascending: true }});
-        const tbody = $("#cats_tbody");
-        tbody.innerHTML = rows.map(r => `
-          <tr class="border-b">
-            <td class="p-2">${r.id}</td>
-            <td class="p-2">${r.name ?? ""}</td>
-          </tr>
-        `).join("");
-      } catch (e) {
-        toast("Failed to load categories","error");
-      }
-    }
-
-    // ===== Reports =====
-    async function runPL(e) {
-      e?.preventDefault();
-      const tbody = $("#pl_tbody");
-      tbody.innerHTML = "";
-      const gran = $("#pl_granularity").value; // month/year
-      const propertyId = $("#filter_property").value ? parseInt($("#filter_property").value) : null;
-      const dateFrom = $("#filter_from").value || null;
-      const dateTo = $("#filter_to").value || null;
-
-      // fetch income/expenses with filters
-      const incOpts = { order: { column: "date", ascending: true }};
-      const expOpts = { order: { column: "date", ascending: true }};
-      incOpts.gte = {}; expOpts.gte = {}; incOpts.lte = {}; expOpts.lte = {}; incOpts.eq = {}; expOpts.eq = {};
-      if (dateFrom) { incOpts.gte.date = dateFrom; expOpts.gte.date = dateFrom; }
-      if (dateTo)   { incOpts.lte.date = dateTo;   expOpts.lte.date = dateTo;   }
-      if (propertyId) { incOpts.eq.property_id = propertyId; expOpts.eq.property_id = propertyId; }
-      // Clean empty filters
-      if (Object.keys(incOpts.gte).length===0) delete incOpts.gte; if (Object.keys(expOpts.gte).length===0) delete expOpts.gte;
-      if (Object.keys(incOpts.lte).length===0) delete incOpts.lte; if (Object.keys(expOpts.lte).length===0) delete expOpts.lte;
-      if (Object.keys(incOpts.eq).length===0) delete incOpts.eq;   if (Object.keys(expOpts.eq).length===0) delete expOpts.eq;
-
-      const [incomeRows, expenseRows] = await Promise.all([ listTable("income", incOpts), listTable("expenses", expOpts) ]);
-      const bucket = (d) => {
-        const dt = d ? new Date(d) : null;
-        if (!dt) return "Unknown";
-        return (gran==="year")
-          ? `${dt.getFullYear()}`
-          : `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-      };
-      const agg = {};
-      for (const r of incomeRows) {
-        const key = bucket(r.date);
-        if (!agg[key]) agg[key] = { income:0, expenses:0 };
-        agg[key].income += Number(r.amount||0);
-      }
-      for (const r of expenseRows) {
-        const key = bucket(r.date);
-        if (!agg[key]) agg[key] = { income:0, expenses:0 };
-        agg[key].expenses += Number(r.amount||0);
-      }
-      const keys = Object.keys(agg).sort();
-      for (const k of keys) {
-        const inc = agg[k].income;
-        const exp = agg[k].expenses;
-        const net = inc - exp;
-        const tr = document.createElement("tr");
-        tr.className = "border-b";
-        tr.innerHTML = `
-          <td class="p-2">${k}</td>
-          <td class="p-2">${fmtMoney(inc)}</td>
-          <td class="p-2">${fmtMoney(exp)}</td>
-          <td class="p-2 font-semibold ${net>=0?"text-emerald-700":"text-red-700"}">${fmtMoney(net)}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-    }
-
-    // CSV export for current P&L table
-    function exportPLToCSV() {
-      const rows = [["Period","Income","Expenses","Net"]];
-      $$("#pl_tbody tr").forEach(tr => {
-        const tds = tr.querySelectorAll("td");
-        rows.push(Array.from(tds).map(td => td.textContent));
-      });
-      const csv = rows.map(r => r.map(s => `"${String(s).replaceAll('"','""')}"`).join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "profit_loss.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    // Expose handlers
-    window.submitIncome = submitIncome;
-    window.submitExpense = submitExpense;
-    window.submitBuildExpense = submitBuildExpense;
-    window.submitProperty = submitProperty;
-    window.submitVendor = submitVendor;
-    window.submitCategory = submitCategory;
-    window.runPL = runPL;
-    window.exportPLToCSV = exportPLToCSV;
-
-    window.editIncome = editIncome;
-    window.removeIncome = removeIncome;
-    window.editExpense = editExpense;
-    window.removeExpense = removeExpense;
-    window.addReceiptToExpense = addReceiptToExpense;
-    window.removeBuildExpense = removeBuildExpense;
-  </script>
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .topbar{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:10}
+    .brand{display:flex;gap:.6rem;align-items:center;font-size:20px}
+    .nav{display:flex;gap:10px;flex-wrap:wrap}
+    .nav a{display:inline-block;padding:8px 14px;border-radius:999px;background:#e5e7eb;color:#111827;text-decoration:none}
+    .nav a.active{background:#111827;color:#fff}
+    .container{max-width:1100px;margin:24px auto;padding:0 16px}
+    .section-title{margin:0 0 12px 0;font-size:22px}
+    .subsection-title{margin:24px 0 10px 0;font-size:18px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .grid .col-span-2{grid-column:span 2}
+    label{display:flex;flex-direction:column;gap:6px;color:var(--ink-soft);font-weight:500}
+    input,select,textarea{height:40px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:#fff;color:var(--ink)}
+    textarea{height:40px;resize:vertical;padding:10px 12px}
+    input::placeholder{color:#9ca3af}
+    .actions{display:flex;align-items:end}
+    .btn{height:40px;padding:0 16px;border:none;border-radius:10px;background:#111827;color:#fff;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .table-wrap{overflow:auto}
+    .table{width:100%;border-collapse:separate;border-spacing:0}
+    .table th,.table td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+    .footnote{color:var(--muted);margin:18px 2px}
+    /* sections */
+    section[data-view]{display:none}
+    section[data-view].show{display:block}
+  </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
-  <header class="p-4 md:p-6 bg-white border-b sticky top-0 z-40">
-    <div class="max-w-6xl mx-auto flex items-center gap-3">
-      <div class="text-2xl font-bold">🏠 Rental & 🧰 Build Tracker</div>
-      <nav class="ml-auto flex gap-2 text-sm">
-        <button class="navbtn px-3 py-2 rounded-lg hover:bg-slate-200" data-tab="tab-income">Income</button>
-        <button class="navbtn px-3 py-2 rounded-lg hover:bg-slate-200" data-tab="tab-expenses">Expenses</button>
-        <button class="navbtn px-3 py-2 rounded-lg hover:bg-slate-200" data-tab="tab-build">Build</button>
-        <button class="navbtn px-3 py-2 rounded-lg hover:bg-slate-200" data-tab="tab-admin">Admin</button>
-        <button class="navbtn px-3 py-2 rounded-lg hover:bg-slate-200" data-tab="tab-reports">Reports</button>
-      </nav>
-    </div>
+<body>
+  <header class="topbar">
+    <div class="brand"><span>🏠</span><strong>Rental & 🔒 Build Tracker</strong></div>
+    <nav class="nav" id="nav">
+      <a href="#income"   data-view="income">Income</a>
+      <a href="#expenses" data-view="expenses">Expenses</a>
+      <a href="#build"    data-view="build">Build</a>
+      <a href="#admin"    data-view="admin">Admin</a>
+      <a href="#reports"  data-view="reports">Reports</a>
+      <a href="receipts.html">Receipts</a>
+    </nav>
   </header>
 
-  <main class="max-w-6xl mx-auto p-4 md:p-6">
-    <!-- INCOME -->
-    <section id="tab-income" class="tab">
-      <h2 class="text-xl font-semibold mb-3">Add Income</h2>
-      <form class="grid md:grid-cols-3 gap-3 bg-white p-4 rounded-xl border" onsubmit="submitIncome(event)">
-        <div>
-          <label class="text-sm block mb-1">Property</label>
-          <select id="income_property_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Amount</label>
-          <input id="income_amount" type="number" step="0.01" required class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Date</label>
-          <input id="income_date" type="date" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Account</label>
-          <select id="income_account_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Tenant</label>
-          <select id="income_tenant_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Source</label>
-          <input id="income_source" type="text" placeholder="Rent, Late Fee..." class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Payment Type</label>
-          <input id="income_payment_type" type="text" placeholder="ACH, Cash, Check..." class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="md:col-span-2">
-          <label class="text-sm block mb-1">Note</label>
-          <input id="income_note" type="text" class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="md:col-span-3 flex justify-end">
-          <button id="btnAddIncome" class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Add Income</button>
-        </div>
-      </form>
+  <main class="container">
+    <!-- ============== INCOME (OG UI) ================= -->
+    <section data-view="income" class="show">
+      <h2 class="section-title">Add Income</h2>
+      <div class="card">
+        <form id="incomeForm" class="grid">
+          <label><span>Property</span><select id="incomeProperty"></select></label>
+          <label><span>Amount</span><input id="incomeAmount" type="number" step="0.01" inputmode="decimal" /></label>
+          <label><span>Date</span><input id="incomeDate" type="date" /></label>
 
-      <h3 class="text-lg font-semibold mt-6 mb-2">Recent Income</h3>
-      <div class="overflow-auto bg-white rounded-xl border">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-left">
-            <tr>
-              <th class="p-2">ID</th><th class="p-2">Date</th><th class="p-2">Amount</th><th class="p-2">Property</th><th class="p-2">Source</th><th class="p-2">Pay Type</th><th class="p-2">Note</th><th class="p-2"></th>
-            </tr>
-          </thead>
-          <tbody id="income_tbody"></tbody>
-        </table>
+          <label><span>Account</span><select id="incomeAccount"></select></label>
+          <label><span>Tenant</span><select id="incomeTenant"></select></label>
+          <label><span>Source</span><input id="incomeSource" placeholder="Rent, Late Fee…" /></label>
+
+          <label><span>Payment Type</span><input id="incomePayType" placeholder="ACH, Cash, Check…" /></label>
+          <label class="col-span-2"><span>Note</span><input id="incomeNote" /></label>
+
+          <div class="actions"><button type="submit" class="btn">Add Income</button></div>
+        </form>
       </div>
+
+      <h3 class="subsection-title">Recent Income</h3>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="table" id="incomeTable">
+            <thead><tr><th>ID</th><th>Date</th><th>Amount</th><th>Property</th><th>Source</th><th>Pay Type</th><th>Note</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <p class="footnote">Public mode. Later we can add Supabase Auth + RLS. Ensure a Storage bucket named <code>receipts</code> exists and is public.</p>
     </section>
 
-    <!-- EXPENSES -->
-    <section id="tab-expenses" class="tab hidden">
-      <h2 class="text-xl font-semibold mb-3">Add Expense</h2>
-      <form class="grid md:grid-cols-3 gap-3 bg-white p-4 rounded-xl border" onsubmit="submitExpense(event)">
-        <div>
-          <label class="text-sm block mb-1">Property</label>
-          <select id="expense_property_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Vendor</label>
-          <select id="expense_vendor_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Amount</label>
-          <input id="expense_amount" type="number" step="0.01" required class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Date</label>
-          <input id="expense_date" type="date" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Account</label>
-          <select id="expense_account_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Category</label>
-          <select id="expense_category_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div class="md:col-span-2">
-          <label class="text-sm block mb-1">Description</label>
-          <input id="expense_description" type="text" class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="md:col-span-3 grid md:grid-cols-3 gap-3 items-end">
-          <div>
-            <label class="text-sm block mb-1">Attach receipt (optional)</label>
-            <input id="expense_receipt" type="file" accept="image/*,application/pdf" class="w-full border rounded-lg p-2 bg-white" />
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-sm block mb-1">Receipt description</label>
-            <input id="receipt_desc" type="text" class="w-full border rounded-lg p-2" placeholder="What is this receipt for?"/>
-          </div>
-        </div>
-        <div class="md:col-span-3 flex justify-end">
-          <button id="btnAddExpense" class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Add Expense</button>
-        </div>
-      </form>
+    <!-- ============== EXPENSES (OG style) ============ -->
+    <section data-view="expenses">
+      <h2 class="section-title">Add Expense</h2>
+      <div class="card">
+        <form id="expenseForm" class="grid">
+          <label><span>Date</span><input id="expDate" type="date" /></label>
+          <label><span>Amount</span><input id="expAmount" type="number" step="0.01" inputmode="decimal" /></label>
+          <div></div>
 
-      <h3 class="text-lg font-semibold mt-6 mb-2">Recent Expenses</h3>
-      <div class="overflow-auto bg-white rounded-xl border">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-left">
-            <tr>
-              <th class="p-2">ID</th><th class="p-2">Date</th><th class="p-2">Amount</th><th class="p-2">Property</th><th class="p-2">Vendor</th><th class="p-2">Category</th><th class="p-2">Description</th><th class="p-2"></th>
-            </tr>
-          </thead>
-          <tbody id="expense_tbody"></tbody>
-        </table>
+          <label class="col-span-2"><span>Property</span><select id="expProperty"></select></label>
+          <div class="actions"><button type="button" id="newPropBtn" class="btn" title="Quick add property">+ Property</button></div>
+
+          <label class="col-span-2"><span>Vendor</span><select id="expVendor"></select></label>
+          <div class="actions"><button type="button" id="newVendorBtn" class="btn" title="Quick add vendor">+ Vendor</button></div>
+
+          <label class="col-span-2"><span>Category</span><select id="expCategory"></select></label>
+          <div class="actions"><button type="button" id="newCatBtn" class="btn" title="Quick add category">+ Category</button></div>
+
+          <label class="col-span-3"><span>Notes</span><textarea id="expNotes" placeholder="optional"></textarea></label>
+
+          <div class="actions"><button type="submit" class="btn">Save Expense</button></div>
+        </form>
       </div>
-    </section>
 
-    <!-- BUILD -->
-    <section id="tab-build" class="tab hidden">
-      <h2 class="text-xl font-semibold mb-3">Add Build Expense</h2>
-      <form class="grid md:grid-cols-3 gap-3 bg-white p-4 rounded-xl border" onsubmit="submitBuildExpense(event)">
-        <div>
-          <label class="text-sm block mb-1">Amount</label>
-          <input id="build_amount" type="number" step="0.01" required class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Date</label>
-          <input id="build_date" type="date" class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="flex items-center gap-2">
-          <input id="build_capitalizable" type="checkbox" class="w-5 h-5" />
-          <label class="text-sm">Capitalizable</label>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Price per item</label>
-          <input id="build_price_peritem" type="number" step="0.01" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1"># Items</label>
-          <input id="build_number_ofitems" type="number" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Vendor</label>
-          <select id="build_vendor_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Category</label>
-          <select id="build_category_id" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Asset Type ID (optional)</label>
-          <input id="build_asset_type_id" type="number" class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="md:col-span-2">
-          <label class="text-sm block mb-1">Description</label>
-          <input id="build_description" type="text" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Notes</label>
-          <input id="build_notes" type="text" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Reusable</label>
-          <input id="build_reusable" type="text" class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="md:col-span-3 grid md:grid-cols-3 gap-3 items-end">
-          <div>
-            <label class="text-sm block mb-1">Attach receipt (optional)</label>
-            <input id="build_receipt" type="file" accept="image/*,application/pdf" class="w-full border rounded-lg p-2 bg-white" />
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-sm block mb-1">Receipt description</label>
-            <input id="build_receipt_desc" type="text" class="w-full border rounded-lg p-2" placeholder="What is this receipt for?"/>
-          </div>
-        </div>
-        <div class="md:col-span-3 flex justify-end">
-          <button id="btnAddBuildExpense" class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Add Build Expense</button>
-        </div>
-      </form>
-
-      <h3 class="text-lg font-semibold mt-6 mb-2">Recent Build Expenses</h3>
-      <div class="overflow-auto bg-white rounded-xl border">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-left">
-            <tr>
-              <th class="p-2">ID</th><th class="p-2">Date</th><th class="p-2">Amount</th><th class="p-2">Vendor</th><th class="p-2">Category</th><th class="p-2">Capex</th><th class="p-2">Description</th><th class="p-2"></th>
-            </tr>
-          </thead>
-          <tbody id="build_tbody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ADMIN -->
-    <section id="tab-admin" class="tab hidden">
-      <div class="grid md:grid-cols-2 gap-6">
-        <div>
-          <h3 class="text-lg font-semibold mb-2">Add Property</h3>
-          <form class="grid gap-3 bg-white p-4 rounded-xl border" onsubmit="submitProperty(event)">
-            <input id="prop_name" placeholder="Name (e.g., Oak St Duplex)" class="border rounded-lg p-2" required />
-            <input id="prop_address" placeholder="Address" class="border rounded-lg p-2" />
-            <div class="grid grid-cols-3 gap-2">
-              <input id="prop_city" placeholder="City" class="border rounded-lg p-2" />
-              <input id="prop_state" placeholder="State" class="border rounded-lg p-2" />
-              <input id="prop_zip" placeholder="ZIP" class="border rounded-lg p-2" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <input id="prop_purchase_price" type="number" step="0.01" placeholder="Purchase Price" class="border rounded-lg p-2" />
-              <input id="prop_purchase_date" type="date" class="border rounded-lg p-2" />
-            </div>
-            <label class="inline-flex items-center gap-2">
-              <input id="prop_taxdefered" type="checkbox" class="w-5 h-5" />
-              <span>Tax Deferred</span>
-            </label>
-            <input id="prop_notes" placeholder="Notes" class="border rounded-lg p-2" />
-            <div class="flex justify-end">
-              <button id="btnAddProperty" class="px-4 py-2 rounded-lg bg-slate-900 text-white">Add Property</button>
-            </div>
-          </form>
-
-          <h4 class="font-semibold mt-6 mb-2">Properties</h4>
-          <div class="overflow-auto bg-white rounded-xl border">
-            <table class="w-full text-sm">
-              <thead class="bg-slate-100 text-left">
-                <tr>
-                  <th class="p-2">ID</th><th class="p-2">Name</th><th class="p-2">Address</th><th class="p-2">Purchase</th><th class="p-2">Date</th><th class="p-2">Deferred</th><th class="p-2">Notes</th>
-                </tr>
-              </thead>
-              <tbody id="props_tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div>
-          <h3 class="text-lg font-semibold mb-2">Add Vendor</h3>
-          <form class="grid gap-3 bg-white p-4 rounded-xl border" onsubmit="submitVendor(event)">
-            <input id="vendor_name" placeholder="Vendor name" class="border rounded-lg p-2" required />
-            <input id="vendor_service_type" placeholder="Service type" class="border rounded-lg p-2" />
-            <input id="vendor_email" placeholder="Email" class="border rounded-lg p-2" />
-            <input id="vendor_phone" placeholder="Phone" class="border rounded-lg p-2" />
-            <input id="vendor_notes" placeholder="Notes" class="border rounded-lg p-2" />
-            <div class="flex justify-end">
-              <button id="btnAddVendor" class="px-4 py-2 rounded-lg bg-slate-900 text-white">Add Vendor</button>
-            </div>
-          </form>
-
-          <h4 class="font-semibold mt-6 mb-2">Vendors</h4>
-          <div class="overflow-auto bg-white rounded-xl border">
-            <table class="w-full text-sm">
-              <thead class="bg-slate-100 text-left">
-                <tr>
-                  <th class="p-2">ID</th><th class="p-2">Name</th><th class="p-2">Service</th><th class="p-2">Email</th><th class="p-2">Phone</th><th class="p-2">Notes</th>
-                </tr>
-              </thead>
-              <tbody id="vendors_tbody"></tbody>
-            </table>
-          </div>
-
-          <h3 class="text-lg font-semibold mt-6 mb-2">Add Expense Category</h3>
-          <form class="grid gap-3 bg-white p-4 rounded-xl border" onsubmit="submitCategory(event)">
-            <input id="category_name" placeholder="Category name (e.g., Plumbing Supplies)" class="border rounded-lg p-2" required />
-            <div class="flex justify-end">
-              <button id="btnAddCategory" class="px-4 py-2 rounded-lg bg-slate-900 text-white">Add Category</button>
-            </div>
-          </form>
-
-          <h4 class="font-semibold mt-6 mb-2">Categories</h4>
-          <div class="overflow-auto bg-white rounded-xl border">
-            <table class="w-full text-sm">
-              <thead class="bg-slate-100 text-left">
-                <tr>
-                  <th class="p-2">ID</th><th class="p-2">Name</th>
-                </tr>
-              </thead>
-              <tbody id="cats_tbody"></tbody>
-            </table>
-          </div>
+      <h3 class="subsection-title">Recent Expenses</h3>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="table" id="expenseTable">
+            <thead><tr><th>Date</th><th>Property</th><th>Vendor</th><th>Category</th><th>Amount</th><th>Notes</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
     </section>
 
-    <!-- REPORTS -->
-    <section id="tab-reports" class="tab hidden">
-      <h2 class="text-xl font-semibold mb-3">Profit & Loss</h2>
-      <form class="grid md:grid-cols-5 gap-3 bg-white p-4 rounded-xl border items-end" onsubmit="runPL(event)">
-        <div>
-          <label class="text-sm block mb-1">Granularity</label>
-          <select id="pl_granularity" class="w-full border rounded-lg p-2">
-            <option value="month">Monthly</option>
-            <option value="year">Yearly</option>
-          </select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">Property (optional)</label>
-          <select id="filter_property" class="w-full border rounded-lg p-2"></select>
-        </div>
-        <div>
-          <label class="text-sm block mb-1">From</label>
-          <input id="filter_from" type="date" class="w-full border rounded-lg p-2" />
-        </div>
-        <div>
-          <label class="text-sm block mb-1">To</label>
-          <input id="filter_to" type="date" class="w-full border rounded-lg p-2" />
-        </div>
-        <div class="flex gap-2">
-          <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" type="submit">Run</button>
-          <button class="px-4 py-2 rounded-lg border" type="button" onclick="exportPLToCSV()">Export CSV</button>
-        </div>
-      </form>
-
-      <div class="overflow-auto bg-white rounded-xl border mt-4">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-left">
-            <tr>
-              <th class="p-2">Period</th><th class="p-2">Income</th><th class="p-2">Expenses</th><th class="p-2">Net</th>
-            </tr>
-          </thead>
-          <tbody id="pl_tbody"></tbody>
-        </table>
-      </div>
-      <p class="text-xs text-slate-500 mt-3">Tip: This uses client-side aggregation. For very large datasets we can switch to SQL views/RPCs.</p>
-    </section>
+    <!-- placeholders to keep the tabs from feeling empty -->
+    <section data-view="build"><h2 class="section-title">Build</h2><div class="card">Coming soon.</div></section>
+    <section data-view="admin"><h2 class="section-title">Admin</h2><div class="card">Coming soon.</div></section>
+    <section data-view="reports"><h2 class="section-title">Reports</h2><div class="card">Coming soon.</div></section>
   </main>
 
-  <footer class="max-w-6xl mx-auto p-6 text-xs text-slate-500">
-    <p>Public mode. Later we can add Supabase Auth + RLS. Make sure a Storage bucket named <code>receipts</code> exists and is public.</p>
-  </footer>
+  <!-- ======== Supabase + App Logic (all inline) ========= -->
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+    // ⬇️ Fill these in
+    const SUPABASE_URL  = "YOUR_SUPABASE_URL";
+    const SUPABASE_ANON = "YOUR_SUPABASE_ANON_KEY";
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+    // ---------- Simple tab routing (no extra files) ----------
+    const sections = [...document.querySelectorAll('section[data-view]')];
+    const navLinks = [...document.querySelectorAll('#nav a[href^="#"]')];
+    function show(view){
+      sections.forEach(s=>s.classList.toggle('show', s.dataset.view===view));
+      navLinks.forEach(a=>a.classList.toggle('active', a.dataset.view===view));
+      if (!view) location.hash = '#income';
+    }
+    function fromHash(){
+      const v = (location.hash||'#income').replace('#','');
+      show(v);
+    }
+    window.addEventListener('hashchange', fromHash);
+    fromHash();
+
+    // ---------- Helpers ----------
+    const $ = (id)=>document.getElementById(id);
+    const today = ()=>{ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+
+    // default dates
+    $('incomeDate').value = today();
+    $('expDate').value    = today();
+
+    // ---------- Load select options ----------
+    async function loadIncomeOptions(){
+      const [props, accts, tenants] = await Promise.all([
+        supabase.from('properties').select('id,name').order('name'),
+        supabase.from('accounts').select('id,name').order('name'),
+        supabase.from('tenants').select('id,name').order('name'),
+      ]);
+      const propSel = $('incomeProperty'); propSel.innerHTML = `<option value="">— Choose —</option>`;
+      const acctSel = $('incomeAccount');  acctSel.innerHTML = `<option value="">— Choose —</option>`;
+      const tenSel  = $('incomeTenant');   tenSel .innerHTML = `<option value="">— Choose —</option>`;
+      for (const r of props.data || []) propSel.insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.name}</option>`);
+      for (const r of accts.data || []) acctSel.insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.name}</option>`);
+      for (const r of tenants.data || []) tenSel.insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.name}</option>`);
+    }
+    async function loadExpenseOptions(){
+      const [props, vendors, cats] = await Promise.all([
+        supabase.from('properties').select('id,name').order('name'),
+        supabase.from('vendors').select('id,name').order('name'),
+        supabase.from('expense_categories').select('id,name').order('name'),
+      ]);
+      const propSel = $('expProperty'); propSel.innerHTML = `<option value="">— Choose —</option>`;
+      const venSel  = $('expVendor');   venSel .innerHTML = `<option value="">— Choose —</option>`;
+      const catSel  = $('expCategory'); catSel .innerHTML = `<option value="">— Choose —</option>`;
+      for (const r of props.data || []) propSel.insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.name}</option>`);
+      for (const r of vendors.data || []) venSel .insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.name}</option>`);
+      for (const r of cats.data || [])    catSel .insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.name}</option>`);
+    }
+
+    // ---------- Insert Income ----------
+    $('incomeForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const payload = {
+        property_id: $('incomeProperty').value || null,
+        amount: Number($('incomeAmount').value || 0),
+        date: $('incomeDate').value || null,
+        account_id: $('incomeAccount').value || null,
+        tenant_id: $('incomeTenant').value || null,
+        source: $('incomeSource').value?.trim() || null,
+        pay_type: $('incomePayType').value?.trim() || null,
+        note: $('incomeNote').value?.trim() || null,
+      };
+      const { error } = await supabase.from('income').insert(payload);
+      if (error) return alert('Error: '+error.message);
+      e.target.reset();
+      $('incomeDate').value = today();
+      loadRecentIncome();
+    });
+
+    // ---------- Insert Expense ----------
+    $('expenseForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const payload = {
+        date: $('expDate').value || null,
+        amount: Number($('expAmount').value || 0),
+        property_id: $('expProperty').value || null,
+        vendor_id: $('expVendor').value || null,
+        category_id: $('expCategory').value || null,
+        notes: $('expNotes').value?.trim() || null,   // uses `notes` column you added
+      };
+      const { error } = await supabase.from('expenses').insert(payload);
+      if (error) return alert('Error: '+error.message);
+      e.target.reset();
+      $('expDate').value = today();
+      loadRecentExpenses();
+    });
+
+    // ---------- Quick-add buttons (minimal inline prompts) ----------
+    async function quickAdd(table, name){
+      const val = prompt(`New ${name} name?`); if (!val) return;
+      const { error } = await supabase.from(table).insert({ name: val.trim() });
+      if (error) alert('Error: '+error.message);
+      await Promise.all([loadIncomeOptions(), loadExpenseOptions()]);
+    }
+    $('newPropBtn').addEventListener('click', ()=>quickAdd('properties','property'));
+    $('newVendorBtn').addEventListener('click',()=>quickAdd('vendors','vendor'));
+    $('newCatBtn').addEventListener('click',   ()=>quickAdd('expense_categories','category'));
+
+    // ---------- Recent tables ----------
+    async function loadRecentIncome(){
+      const { data, error } = await supabase
+        .from('income')
+        .select(`
+          id, date, amount, source, pay_type, note,
+          properties:properties(name)
+        `)
+        .order('date', { ascending:false })
+        .limit(25);
+      const tb = document.querySelector('#incomeTable tbody');
+      tb.innerHTML = '';
+      if (error) { tb.innerHTML = `<tr><td colspan="7">Error: ${error.message}</td></tr>`; return; }
+      for (const r of data||[]){
+        tb.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td>${r.id ?? ''}</td>
+            <td>${r.date ?? ''}</td>
+            <td>${(r.amount ?? 0).toFixed?.(2) ?? r.amount}</td>
+            <td>${r.properties?.name ?? ''}</td>
+            <td>${r.source ?? ''}</td>
+            <td>${r.pay_type ?? ''}</td>
+            <td>${r.note ?? ''}</td>
+          </tr>`);
+      }
+    }
+    async function loadRecentExpenses(){
+      const { data, error } = await supabase
+        .from('expenses')
+        .select(`
+          date, amount, notes,
+          properties:properties(name),
+          vendors:vendors(name),
+          categories:expense_categories(name)
+        `)
+        .order('date', { ascending:false })
+        .limit(25);
+      const tb = document.querySelector('#expenseTable tbody');
+      tb.innerHTML = '';
+      if (error) { tb.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`; return; }
+      for (const r of data||[]){
+        tb.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td>${r.date ?? ''}</td>
+            <td>${r.properties?.name ?? ''}</td>
+            <td>${r.vendors?.name ?? ''}</td>
+            <td>${r.categories?.name ?? ''}</td>
+            <td>${(r.amount ?? 0).toFixed?.(2) ?? r.amount}</td>
+            <td>${r.notes ?? ''}</td>
+          </tr>`);
+      }
+    }
+
+    // ---------- Boot ----------
+    await Promise.all([loadIncomeOptions(), loadExpenseOptions()]);
+    await Promise.all([loadRecentIncome(), loadRecentExpenses()]);
+  </script>
 </body>
 </html>
