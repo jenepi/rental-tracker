@@ -3,187 +3,238 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Receipts Viewer</title>
+  <title>Rental Tracker</title>
   <style>
-    /* Simple grid for thumbnails */
-    #thumbs { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: 12px; padding:12px; }
-    .thumb { cursor:pointer; border:1px solid #eee; padding:6px; border-radius:6px; display:flex; align-items:center; justify-content:center; background:#fafafa; height:120px; overflow:hidden; }
-    .thumb img { max-width:100%; max-height:100%; object-fit:contain; display:block; }
-
-    /* Modal */
-    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999; }
-    .modal { width:90%; max-width:1000px; max-height:90vh; background:white; border-radius:8px; overflow:hidden; position:relative; box-shadow:0 12px 40px rgba(0,0,0,0.4); }
-    .modal-header { display:flex; justify-content:flex-end; padding:8px; background:#f6f6f6; }
-    .close-btn { background:transparent; border:0; font-size:20px; cursor:pointer; padding:4px 10px; }
-    .modal-body { padding:0; height:calc(90vh - 48px); display:flex; align-items:center; justify-content:center; }
-    .modal-body img, .modal-body iframe { width:100%; height:100%; border:0; }
-
-    /* Small fallback file icon text */
-    .file-label { font-size:14px; color:#444; padding:12px; text-align:center; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
+    header { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid #eee; }
+    header h1 { font-size:20px; margin:0; }
+    nav { margin-left:auto; display:flex; gap:8px; }
+    nav a, nav button { text-decoration:none; border:1px solid #ddd; padding:6px 10px; border-radius:6px; background:#fff; cursor:pointer; }
+    .container { padding:16px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+    fieldset { border:1px solid #eee; border-radius:8px; padding:12px; }
+    legend { padding:0 6px; color:#444; }
+    label { display:block; font-size:12px; color:#555; margin-top:8px; }
+    input, select, textarea { width:100%; padding:8px; border:1px solid #ddd; border-radius:6px; }
+    button.primary { background:#1a73e8; color:#fff; border:0; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+    #toast { position:fixed; right:12px; bottom:12px; background:#111; color:#fff; padding:10px 12px; border-radius:8px; opacity:0; transform:translateY(8px); transition:.2s; }
+    #toast.show { opacity:1; transform:translateY(0); }
+    .hidden { display:none; }
+    .row { display:flex; gap:8px; align-items:center; }
+    .inline-btn { padding:6px 8px; border:1px solid #ccc; background:#fafafa; border-radius:6px; cursor:pointer; }
   </style>
 </head>
 <body>
-  <h2 style="padding:12px 12px 0 12px">Receipts</h2>
-  <div id="thumbs">Loading receipts...</div>
+  <header>
+    <h1>Rental Tracker</h1>
+    <nav>
+      <button id="tab-expenses">Expenses</button>
+      <button id="tab-reports">Reports</button>
+      <a href="./receipts.html">Receipts</a>
+    </nav>
+  </header>
 
-  <script type="module">
-   // ====== CONFIG: fill these in ======
+  <div class="container">
+    <!-- Expenses Tab -->
+    <section id="expensesView">
+      <div class="grid">
+        <fieldset>
+          <legend>Add Expense</legend>
+          <div class="row">
+            <label style="flex:1">
+              Date
+              <input type="date" id="exp_date" />
+            </label>
+            <label style="flex:1">
+              Amount
+              <input type="number" step="0.01" id="exp_amount" placeholder="0.00"/>
+            </label>
+          </div>
+
+          <label>
+            Property
+            <div class="row">
+              <select id="exp_property" style="flex:1"></select>
+              <button class="inline-btn" id="addPropertyBtn" title="Quick add property">+</button>
+            </div>
+          </label>
+
+          <label>
+            Vendor
+            <div class="row">
+              <select id="exp_vendor" style="flex:1"></select>
+              <button class="inline-btn" id="addVendorBtn" title="Quick add vendor">+</button>
+            </div>
+          </label>
+
+          <label>
+            Category
+            <div class="row">
+              <select id="exp_category" style="flex:1"></select>
+              <button class="inline-btn" id="addCategoryBtn" title="Quick add category">+</button>
+            </div>
+          </label>
+
+          <label>
+            Notes
+            <textarea id="exp_notes" rows="2" placeholder="optional"></textarea>
+          </label>
+
+          <div class="row" style="margin-top:10px">
+            <button class="primary" id="saveExpenseBtn">Save Expense</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Recent Expenses</legend>
+          <table id="expensesTable">
+            <thead>
+              <tr><th>Date</th><th>Property</th><th>Vendor</th><th>Category</th><th style="text-align:right">Amount</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </fieldset>
+      </div>
+    </section>
+
+    <!-- Reports Tab -->
+    <section id="reportsView" class="hidden">
+      <fieldset>
+        <legend>Profit & Loss (quick)</legend>
+        <div class="row">
+          <label style="flex:1">
+            Year
+            <input type="number" id="rpt_year" value="2025" />
+          </label>
+          <button id="runPnLBtn">Run</button>
+        </div>
+        <div id="pnlResult" style="margin-top:10px"></div>
+      </fieldset>
+    </section>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- Supabase (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script>
+    // ======= CONFIG (use same project creds) =======
     const SUPABASE_URL = "https://hbgtxqlmlqkvmnpfkczj.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiZ3R4cWxtbHFrdm1ucGZrY3pqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1MzA0NjksImV4cCI6MjA2MzEwNjQ2OX0.3t7q9rwuLZx3u21-L3xyeudTrMJ8QhbcFve36j2656g";
-    // ===================================
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+    // ======= TABLE NAMES (adjust if yours differ) ===
+    const TBL_EXPENSES = "expenses";
+    const TBL_PROPERTIES = "properties";
+    const TBL_VENDORS = "vendors";
+    const TBL_CATEGORIES = "expense_categories";
+    // ===============================================
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const thumbsEl = document.getElementById('thumbs');
+    // UI helpers
+    const $ = (id) => document.getElementById(id);
+    const toast = (msg) => { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1800); };
 
-    // Helper: determine if file is image or pdf
-    function getFileType(path) {
-      const ext = path.split('.').pop().toLowerCase();
-      if (['jpg','jpeg','png','gif','webp','bmp','tiff'].includes(ext)) return 'image';
-      if (['pdf'].includes(ext)) return 'pdf';
-      return 'other';
+    // Tabs
+    $('tab-expenses').onclick = () => { $('expensesView').classList.remove('hidden'); $('reportsView').classList.add('hidden'); };
+    $('tab-reports').onclick = () => { $('reportsView').classList.remove('hidden'); $('expensesView').classList.add('hidden'); };
+
+    // Populate dropdowns
+    async function populateSelect(table, selectId, labelField="name", valueField="id") {
+      const sel = $(selectId);
+      sel.innerHTML = '<option value="">Loading...</option>';
+      const { data, error } = await sb.from(table).select(`${valueField}, ${labelField}`).order(labelField, { ascending: true });
+      if (error) { sel.innerHTML = `<option>Error</option>`; console.error(error); return; }
+      sel.innerHTML = '<option value="">— choose —</option>' + data.map(r => `<option value="${r[valueField]}">${r[labelField]}</option>`).join('');
     }
 
-    // Use public URL if bucket is public; otherwise create a signed URL.
-    async function getFileUrl(path) {
-      // Try getPublicUrl first (works for public buckets)
-      try {
-        const publicRes = supabase.storage.from(BUCKET).getPublicUrl(path);
-        if (publicRes?.data?.publicUrl) {
-          // quick sanity check: if publicUrl includes 'null' or empty, fallback
-          if (!publicRes.data.publicUrl.includes('null')) return publicRes.data.publicUrl;
-        }
-      } catch(err) {
-        // ignore and fall through to signed url
-      }
-      // Signed url (valid for e.g. 60 seconds)
-      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
-      if (error) {
-        console.error('createSignedUrl error', error);
-        throw error;
-      }
-      return data.signedUrl;
+    // Quick add helpers
+    async function quickAdd(table, promptLabel, labelField="name") {
+      const val = prompt(`New ${promptLabel} name?`);
+      if (!val) return;
+      const { error } = await sb.from(table).insert({ [labelField]: val });
+      if (error) { alert(error.message); return; }
+      toast(`${promptLabel} added`);
+      return val;
     }
 
-    // Render a modal (append to body)
-    function openModal(url, type, filename) {
-      // create backdrop
-      const backdrop = document.createElement('div');
-      backdrop.className = 'modal-backdrop';
-      backdrop.tabIndex = 0;
+    $('addPropertyBtn').onclick = async () => { const added = await quickAdd(TBL_PROPERTIES, 'property', 'name'); if (added) populateSelect(TBL_PROPERTIES, 'exp_property'); };
+    $('addVendorBtn').onclick = async () => { const added = await quickAdd(TBL_VENDORS, 'vendor', 'name'); if (added) populateSelect(TBL_VENDORS, 'exp_vendor'); };
+    $('addCategoryBtn').onclick = async () => { const added = await quickAdd(TBL_CATEGORIES, 'category', 'name'); if (added) populateSelect(TBL_CATEGORIES, 'exp_category'); };
 
-      const modal = document.createElement('div');
-      modal.className = 'modal';
+    // Save expense
+    $('saveExpenseBtn').onclick = async () => {
+      const row = {
+        date: $('exp_date').value || new Date().toISOString().slice(0,10),
+        amount: Number($('exp_amount').value || 0),
+        property_id: $('exp_property').value || null,
+        vendor_id: $('exp_vendor').value || null,
+        category_id: $('exp_category').value || null,
+        notes: $('exp_notes').value || null
+      };
+      if (!row.amount) return alert('Amount is required.');
+      const { error } = await sb.from(TBL_EXPENSES).insert(row);
+      if (error) return alert(error.message);
+      toast('Expense saved');
+      $('exp_amount').value = '';
+      $('exp_notes').value = '';
+      loadRecentExpenses();
+    };
 
-      modal.innerHTML = `
-        <div class="modal-header">
-          <button class="close-btn" title="Close">&times;</button>
-        </div>
-        <div class="modal-body"></div>
-      `;
+    // Load recent expenses
+    async function loadRecentExpenses(limit=20) {
+      const tbody = $('expensesTable').querySelector('tbody');
+      tbody.innerHTML = '<tr><td colspan="5">Loading…</td></tr>';
+      const { data, error } = await sb
+        .from(TBL_EXPENSES)
+        .select(`
+          date,
+          amount,
+          notes,
+          vendor:${TBL_VENDORS}(name),
+          category:${TBL_CATEGORIES}(name),
+          property:${TBL_PROPERTIES}(name)
+        `)
+        .order('date', { ascending:false })
+        .limit(limit);
 
-      const body = modal.querySelector('.modal-body');
-      const closeBtn = modal.querySelector('.close-btn');
+      if (error) { tbody.innerHTML = `<tr><td colspan="5">Error: ${error.message}</td></tr>`; return; }
 
-      if (type === 'image') {
-        const img = document.createElement('img');
-        img.src = url;
-        img.alt = filename || 'Receipt image';
-        body.appendChild(img);
-      } else if (type === 'pdf') {
-        const iframe = document.createElement('iframe');
-        iframe.src = url;
-        iframe.setAttribute('aria-label', filename || 'Receipt PDF');
-        body.appendChild(iframe);
-      } else {
-        const link = document.createElement('a');
-        link.href = url;
-        link.textContent = 'Open receipt in a new tab';
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.className = 'file-label';
-        body.appendChild(link);
-      }
-
-      backdrop.appendChild(modal);
-      document.body.appendChild(backdrop);
-
-      // focus, close handlers
-      closeBtn.addEventListener('click', () => closeModal(backdrop));
-      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(backdrop); });
-      document.addEventListener('keydown', function escHandler(e) {
-        if (e.key === 'Escape') { closeModal(backdrop); document.removeEventListener('keydown', escHandler); }
-      }, { once: true });
+      tbody.innerHTML = data.map(r => `
+        <tr>
+          <td>${r.date ?? ''}</td>
+          <td>${r.property?.name ?? ''}</td>
+          <td>${r.vendor?.name ?? ''}</td>
+          <td>${r.category?.name ?? ''}</td>
+          <td style="text-align:right">$${Number(r.amount||0).toFixed(2)}</td>
+        </tr>
+      `).join('');
     }
 
-    function closeModal(backdrop) {
-      backdrop.remove();
-    }
+    // Simple P&L (year)
+    $('runPnLBtn').onclick = async () => {
+      const year = Number($('rpt_year').value);
+      const start = `${year}-01-01`;
+      const end   = `${year+1}-01-01`;
+      const { data, error } = await sb.from(TBL_EXPENSES)
+        .select('amount')
+        .gte('date', start).lt('date', end);
 
-    // Load list of files (you can adapt this to fetch file list from your DB instead of storage)
-    async function loadReceipts() {
-      thumbsEl.innerHTML = 'Loading receipts...';
-      // List files in the bucket root. Modify prefix if receipts are inside folders.
-      const { data, error } = await supabase.storage.from(BUCKET).list('', { limit: 100, offset: 0 });
-      if (error) {
-        thumbsEl.innerHTML = 'Error loading receipts';
-        console.error(error);
-        return;
-      }
-      if (!data || data.length === 0) {
-        thumbsEl.innerHTML = 'No receipts found.';
-        return;
-      }
+      if (error) { $('pnlResult').textContent = error.message; return; }
+      const total = (data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+      $('pnlResult').innerHTML = `<strong>Expenses ${year}:</strong> $${total.toFixed(2)} (basic total)`;
+    };
 
-      thumbsEl.innerHTML = '';
-      data.forEach(file => {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'thumb';
-        wrapper.title = file.name;
-
-        const fileType = getFileType(file.name);
-
-        if (fileType === 'image') {
-          // create a small preview: fetch a signed/public url for the thumbnail
-          getFileUrl(file.name)
-            .then(url => {
-              const img = document.createElement('img');
-              img.src = url;
-              img.alt = file.name;
-              wrapper.appendChild(img);
-            })
-            .catch(() => {
-              wrapper.textContent = file.name;
-            });
-        } else {
-          // show filename for non-images
-          const lbl = document.createElement('div');
-          lbl.className = 'file-label';
-          lbl.textContent = file.name;
-          wrapper.appendChild(lbl);
-        }
-
-        // click handler: open modal with full viewer
-        wrapper.addEventListener('click', async () => {
-          try {
-            const url = await getFileUrl(file.name);
-            openModal(url, fileType, file.name);
-          } catch (err) {
-            alert('Could not load file. Check console for details.');
-            console.error(err);
-          }
-        });
-
-        thumbsEl.appendChild(wrapper);
-      });
-    }
-
-    // run
-    loadReceipts();
-
-    // Optional: expose loadReceipts to console for testing
-    window.reloadReceipts = loadReceipts;
+    // Init
+    (async function init() {
+      await Promise.all([
+        populateSelect(TBL_PROPERTIES, 'exp_property', 'name', 'id'),
+        populateSelect(TBL_VENDORS, 'exp_vendor', 'name', 'id'),
+        populateSelect(TBL_CATEGORIES, 'exp_category', 'name', 'id'),
+      ]);
+      loadRecentExpenses();
+    })();
   </script>
 </body>
 </html>
